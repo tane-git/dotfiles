@@ -2,6 +2,10 @@
 
 DOTFILES_DIR="$HOME/dotfiles"
 
+echo "Initializing submodules..."
+cd "$DOTFILES_DIR"
+git submodule update --init --recursive
+
 # Backup existing files
 backup_if_exists() {
     if [ -f "$1" ] || [ -L "$1" ]; then
@@ -19,5 +23,6 @@ link_file() {
 
 # Link files
 link_file ".tmux.conf" ".tmux.conf"
+link_file ".config/nvim" ".config/nvim"
 
 echo "Dotfiles setup complete!"
