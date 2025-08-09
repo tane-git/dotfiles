@@ -24,5 +24,7 @@ link_file() {
 # Link files
 link_file ".tmux.conf" ".tmux.conf"
 link_file ".config/nvim" ".config/nvim"
+link_file ".aliases.zsh" ".aliases.zsh"
+link_file ".zshrc" ".zshrc"
 
 echo "Dotfiles setup complete!"
