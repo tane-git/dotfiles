@@ -1,0 +1,20 @@
+#!/bin/bash
+
+set -e
+
+REPO_URL="https://github.com/tane-git/dotfiles"
+DOTFILES_DIR="$HOME/dotfiles"
+
+echo "🚀 Installing dotfiles..."
+
+if [ -d "$DOTFILES_DIR" ]; then
+    echo "❌ $DOTFILES_DIR already exists. Please remove it first or backup manually."
+    exit 1
+fi
+
+echo "📥 Cloning dotfiles repository..."
+git clone "$REPO_URL" "$DOTFILES_DIR"
+
+echo "🔧 Running setup..."
+cd "$DOTFILES_DIR"
+./setup

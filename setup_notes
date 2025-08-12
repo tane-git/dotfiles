@@ -1,0 +1,45 @@
+Made install_zsh.sh script
+
+`chmod +x install_zsh.sh`
+`./install_zsh.sh`
+
+Then ran, installing zsh and setting it as default. Restarting for this to take effect, however maybe not necessary?
+
+Made install_ohmyzsh.sh
+
+`chmod +x install_ohmyzsh.sh`
+`./install_ohmyzsh.sh`
+
+Made install_nvim.sh
+
+`chmod +x install_nvim.sh`
+`./install_nvim.sh`
+
+Now NVIM worked
+
+Tried working on dotfiles repo, setting up setup.sh but ran into issue with gh not being setup
+
+Made install_gh.sh
+
+`chmod +x install_gh.sh`
+`./install_gh.sh`
+
+Had to manually go to browser and register device (it made keys yay)
+
+Then had to add:
+
+`gh auth setup-git`
+
+To install_gh.sh as this finalized the thing and let me `ggp`
+
+Now we need to try get dotfiles again...
+
+`chmod +x clone_dotfiles.sh`
+`./clone_dotfiles.sh`
+
+Added stuff to the ~/dotfiles/setup.sh to get .zshrc and .aliases.zsh.
+
+Made tane-git/nvim a submodule of dotfiles, and added it to setup.sh.
+
+Now need to ensure nvim is default git editor. Can't have nano open again.
+

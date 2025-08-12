@@ -1,0 +1,86 @@
+#!/bin/bash
+
+set -e
+
+echo "🚀 Starting dotfiles setup..."
+
+if ! command -v apt &> /dev/null; then
+    echo "❌ This script is designed for Ubuntu/Debian systems with apt package manager"
+    exit 1
+fi
+
+echo "📦 Updating package lists..."
+sudo apt update
+
+echo "🐚 Installing zsh..."
+sudo apt install -y zsh
+
+echo "✨ Installing oh-my-zsh..."
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+
+echo "📝 Installing nvim..."
+sudo add-apt-repository universe -y
+sudo apt install -y ninja-build gettext cmake unzip curl build-essential make git
+mkdir -p ~/github
+if [ ! -d ~/github/neovim ]; then
+    git clone https://github.com/neovim/neovim ~/github/neovim
+fi
+cd ~/github/neovim
+git checkout stable
+make CMAKE_BUILD_TYPE=Release
+sudo make install
+echo "✅ nvim built and installed"
+
+echo "🐙 Installing GitHub CLI..."
+sudo apt install -y gh
+
+echo "⚙️ Setting up git config..."
+git config --global user.email "tanelives@gmail.com"
+git config --global user.name "Tane"
+git config --global core.editor "nvim"
+
+echo "📦 Installing nvm and Node.js..."
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+nvm install --lts
+nvm use --lts
+nvm install --latest-npm
+echo "✅ nvm and latest LTS node installed"
+
+echo "🔗 Setting up dotfiles..."
+DOTFILES_DIR="$HOME/dotfiles"
+
+cd "$DOTFILES_DIR"
+git submodule update --init --recursive
+
+backup_if_exists() {
+    if [ -f "$1" ] || [ -L "$1" ]; then
+        mv "$1" "$1.backup.$(date +%Y%m%d_%H%M%S)"
+        echo "Backed up $1"
+    fi
+}
+
+link_file() {
+    backup_if_exists "$HOME/$2"
+    ln -s "$DOTFILES_DIR/$1" "$HOME/$2"
+    echo "Linked $1 -> ~/$2"
+}
+
+link_file ".tmux.conf" ".tmux.conf"
+link_file ".config/nvim" ".config/nvim"
+link_file ".aliases.zsh" ".aliases.zsh"
+link_file ".zshrc" ".zshrc"
+
+echo "🐚 Setting zsh as default shell..."
+chsh -s $(which zsh)
+
+echo ""
+echo "🎉 Dotfiles setup complete!"
+echo ""
+echo "📋 Next steps:"
+echo "1. Run 'gh auth login' to authenticate with GitHub"
+echo "2. Run 'gh auth setup-git' to finalize git integration"
+echo "3. Restart your terminal or run 'exec zsh' to use zsh"
+echo ""
+echo "⚠️  Note: You may need to restart your terminal for all changes to take effect."
