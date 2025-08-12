@@ -63,6 +63,7 @@ backup_if_exists() {
 
 link_file() {
     backup_if_exists "$HOME/$2"
+    mkdir -p "$(dirname "$HOME/$2")"
     ln -s "$DOTFILES_DIR/$1" "$HOME/$2"
     echo "Linked $1 -> ~/$2"
 }
