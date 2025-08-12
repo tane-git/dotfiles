@@ -72,9 +72,10 @@ link_file ".tmux.conf" ".tmux.conf"
 link_file ".config/nvim" ".config/nvim"
 link_file ".aliases.zsh" ".aliases.zsh"
 link_file ".zshrc" ".zshrc"
+source "~/.zshrc"
 
 echo "🐚 Setting zsh as default shell..."
-chsh -s $(which zsh)
+sudo chsh -s $(which zsh)
 
 echo ""
 echo "🎉 Dotfiles setup complete!"
