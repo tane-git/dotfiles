@@ -70,7 +70,7 @@ ZSH_THEME="af-magic"
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git)
+plugins=(git fzf)
 
 source $ZSH/oh-my-zsh.sh
 
@@ -121,3 +121,9 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 export PATH=$PATH:$GOPATH/bin
 export GOPATH=$HOME/go
 export PATH=$PATH:/usr/local/go/bin
+
+
+bindkey -r '\ec'
+bindkey '^e' fzf-cd-widget
+
+export PATH=$PATH:$HOME/.cargo/bin

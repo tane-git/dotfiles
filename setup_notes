@@ -43,3 +43,8 @@ Made tane-git/nvim a submodule of dotfiles, and added it to setup.sh.
 
 Now need to ensure nvim is default git editor. Can't have nano open again.
 
+~~~
+
+other things I've done that haven't been scripted:
+fzf
+
