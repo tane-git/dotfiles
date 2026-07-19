@@ -76,6 +76,10 @@ source $ZSH/oh-my-zsh.sh
 
 # User configuration
 
+# Set umask to 022 for standard file permissions (files: 644, directories: 755)
+# This allows web servers (like nginx) to read files created during builds
+umask 022
+
 # export MANPATH="/usr/local/man:$MANPATH"
 
 # You may need to manually set your language environment
@@ -110,10 +114,10 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 # opencode
-export PATH=/home/tane/.opencode/bin:$PATH
+export PATH=$HOME/.opencode/bin:$PATH
 
 # bun completions
-[ -s "/home/tane/.bun/_bun" ] && source "/home/tane/.bun/_bun"
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 # bun
 export BUN_INSTALL="$HOME/.bun"
@@ -127,3 +131,18 @@ bindkey -r '\ec'
 bindkey '^e' fzf-cd-widget
 
 export PATH=$PATH:$HOME/.cargo/bin
+alias clip='xclip -selection clipboard'
+export PATH="$HOME/local/nvim/bin:$PATH"
+
+export DOTNET_MULTILEVEL_LOOKUP=1
+export OPENSSL_CONF="$HOME/.config/openssl/openssl.cnf"
+export PATH="$HOME/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
+
+# Local, machine-specific config and secrets (untracked)
+[ -f ~/.zshrc.local ] && source ~/.zshrc.local
+
+# Auto-attach to tmux session on SSH login
+if [[ -n "$SSH_CONNECTION" ]] && [[ -z "$TMUX" ]]; then
+    tmux attach-session -t main || tmux new-session -s main
+fi
