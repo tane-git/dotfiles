@@ -127,3 +127,7 @@ bindkey -r '\ec'
 bindkey '^e' fzf-cd-widget
 
 export PATH=$PATH:$HOME/.cargo/bin
+
+
+# Load Angular CLI autocompletion.
+source <(ng completion script)
