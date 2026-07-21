@@ -27,7 +27,7 @@ source ~/.tmux/agent-lib.sh
 
 trigger_tty="${1:?agent-dashboard.sh: missing trigger tty argument}"
 
-AGENT_CMDS="opencode"   # extend later, e.g. "opencode|claude"
+AGENT_CMDS="opencode|claude"
 
 # Unique session:window pairs whose active pane is running an agent command.
 mapfile -t agent_windows < <(
