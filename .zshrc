@@ -142,6 +142,22 @@ export PATH="$HOME/.local/bin:$PATH"
 # Local, machine-specific config and secrets (untracked)
 [ -f ~/.zshrc.local ] && source ~/.zshrc.local
 
+# Require confirmation before killing a tmux server/session, since these
+# commands have no default keybinding/guard and can wipe out every running
+# session, window, and pane with no way to undo it.
+tmux() {
+    case "$1" in
+        kill-server|kill-session)
+            read "confirm?Really run 'tmux $*'? This can destroy other sessions/panes. (yes/N) "
+            if [[ "$confirm" != yes ]]; then
+                echo "aborted"
+                return 1
+            fi
+            ;;
+    esac
+    command tmux "$@"
+}
+
 # Auto-attach to tmux session on SSH login
 if [[ -n "$SSH_CONNECTION" ]] && [[ -z "$TMUX" ]]; then
     tmux attach-session -t main || tmux new-session -s main
