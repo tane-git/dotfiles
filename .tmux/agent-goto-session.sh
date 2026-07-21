@@ -13,14 +13,19 @@
 #
 # Safety: only acts while attached to the dashboard session. If no matching
 # nested client is found, it says so instead of switching anywhere.
+# Every call is pinned with -c to the client that pressed the hotkey
+# ($trigger_tty, passed in by the keybinding via #{client_tty}) instead of
+# relying on tmux's own "current client" guess — see agent-dashboard.sh.
 set -u
 source ~/.tmux/agent-lib.sh
 
-if [ "$(tmux display-message -p '#{session_name}')" != "$DASHBOARD" ]; then
+trigger_tty="${1:?agent-goto-session.sh: missing trigger tty argument}"
+
+if [ "$(tmux display-message -p -c "$trigger_tty" '#{session_name}')" != "$DASHBOARD" ]; then
   exit 0
 fi
 
-pane_tty=$(tmux display-message -p '#{pane_tty}')
+pane_tty=$(tmux display-message -p -c "$trigger_tty" '#{pane_tty}')
 target=$(
   tmux list-clients -F '#{client_tty}	#{client_session}' \
     | awk -F'\t' -v tty="$pane_tty" '$1 == tty { print $2; exit }'
@@ -31,4 +36,4 @@ if [ -z "$target" ]; then
   exit 0
 fi
 
-tmux switch-client -t "$target"
+tmux switch-client -c "$trigger_tty" -t "$target"

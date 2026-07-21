@@ -16,8 +16,16 @@
 #   * If the invoking client is currently attached to the dashboard session,
 #     it's switched to another real session first, so a rebuild never
 #     silently detaches the user's terminal.
+#   * Every switch-client/display-message call is pinned with -c to the
+#     client that pressed the hotkey ($trigger_tty, passed in by the
+#     keybinding via #{client_tty}), instead of relying on tmux's own
+#     "current client" guess. Per `man tmux` (switch-client): with no -c,
+#     tmux "attempts to work out the client currently in use" — from a
+#     run-shell subprocess that guess can silently land on the wrong client.
 set -u
 source ~/.tmux/agent-lib.sh
+
+trigger_tty="${1:?agent-dashboard.sh: missing trigger tty argument}"
 
 AGENT_CMDS="opencode"   # extend later, e.g. "opencode|claude"
 
@@ -35,10 +43,10 @@ if [ "${#agent_windows[@]}" -eq 0 ]; then
 fi
 
 # Don't let a rebuild detach the client that triggered it.
-current_session=$(tmux display-message -p '#{session_name}' 2>/dev/null || true)
+current_session=$(tmux display-message -p -c "$trigger_tty" '#{session_name}' 2>/dev/null || true)
 if [ "$current_session" = "$DASHBOARD" ]; then
   fallback=$(tmux list-sessions -F '#{session_name}' | grep -vx "$DASHBOARD" | head -n1 || true)
-  [ -n "$fallback" ] && tmux switch-client -t "$fallback"
+  [ -n "$fallback" ] && tmux switch-client -c "$trigger_tty" -t "$fallback"
 fi
 
 if tmux has-session -t "$DASHBOARD" 2>/dev/null; then
@@ -50,8 +58,7 @@ fi
 # session exit immediately instead of actually attaching.
 first=1
 for entry in "${agent_windows[@]}"; do
-  src_session="${entry%%$'\t'*}"
-  src_window="${entry#*$'\t'}"
+  IFS=$'\t' read -r src_session src_window <<< "$entry"
   target="${src_session}:${src_window}"
   if [ "$first" -eq 1 ]; then
     tmux new-session -d -s "$DASHBOARD" -n "$src_session" "TMUX= tmux attach -t '$target'"
@@ -61,4 +68,4 @@ for entry in "${agent_windows[@]}"; do
   fi
 done
 
-tmux switch-client -t "$DASHBOARD" 2>/dev/null || true
+tmux switch-client -c "$trigger_tty" -t "$DASHBOARD"
