@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 # agent-dashboard.sh — (re)build a session with one window per running agent.
 #
-#   Scans every pane on the server for an agent process (currently just
-#   `opencode`) and rebuilds the "agents" session from scratch: one window
-#   per agent found, each window's pane running `tmux attach` nested onto the
-#   agent's real session:window. Nothing about the source sessions is ever
-#   touched — attach only adds a client, it never moves or modifies panes.
+#   Scans every pane on the server for an agent process (currently
+#   `opencode`/`claude`) and rebuilds the "agents" session from scratch: one
+#   window per agent found, each window's pane running `tmux attach` nested
+#   onto a dedicated clone session grouped with the agent's real session
+#   (see agent-lib.sh). Nothing about the source sessions is ever touched —
+#   session-group membership and attach only add views, they never move or
+#   modify the real windows/panes.
+#
+#   Attaching to a clone rather than the real session directly means each
+#   tile can have its own status bar turned off (session options are
+#   independent per group member) without touching the real session's own
+#   status bar — fixing the double-status-bar row mismatch a direct attach
+#   would otherwise cause.
 #
 # Safety:
 #   * Only ever creates/kills the dashboard session by its fixed name
-#     ($DASHBOARD) — never a bare/ambiguous kill-session or kill-server.
+#     ($DASHBOARD), plus its own tagged clone sessions — never a bare/
+#     ambiguous kill-session or kill-server.
 #   * Rebuilding is safe: dashboard panes only ever run `tmux attach`, so
-#     killing the dashboard session detaches those nested clients and never
-#     touches the real agent sessions/windows/panes.
+#     killing the dashboard session (and its clones) detaches those nested
+#     clients and never touches the real agent sessions/windows/panes.
 #   * If the invoking client is currently attached to the dashboard session,
 #     it's switched to another real session first, so a rebuild never
 #     silently detaches the user's terminal.
@@ -52,19 +61,31 @@ fi
 if tmux has-session -t "$DASHBOARD" 2>/dev/null; then
   tmux kill-session -t "$DASHBOARD"
 fi
+agent_dashboard_kill_clones
 
 # TMUX= clears the var each new pane otherwise inherits (pointing at this
 # dashboard session), which makes a nested `tmux attach` to a *different*
 # session exit immediately instead of actually attaching.
 first=1
+tile=0
 for entry in "${agent_windows[@]}"; do
   IFS=$'\t' read -r src_session src_window <<< "$entry"
-  target="${src_session}:${src_window}"
+  tile=$((tile + 1))
+  clone="agentdash-${tile}"
+
+  # Grouped session: shares src_session's windows, but its own current
+  # window, status bar and other session options stay independent (see
+  # `man tmux`, new-session -t).
+  tmux new-session -d -t "$src_session" -s "$clone"
+  tmux select-window -t "${clone}:${src_window}"
+  tmux set-option -t "$clone" status off
+  tmux set-option -t "$clone" "$CLONE_OPTION" "$src_session"
+
   if [ "$first" -eq 1 ]; then
-    tmux new-session -d -s "$DASHBOARD" -n "$src_session" "TMUX= tmux attach -t '$target'"
+    tmux new-session -d -s "$DASHBOARD" -n "$src_session" "TMUX= tmux attach -t '$clone'"
     first=0
   else
-    tmux new-window -t "$DASHBOARD" -n "$src_session" "TMUX= tmux attach -t '$target'"
+    tmux new-window -t "$DASHBOARD" -n "$src_session" "TMUX= tmux attach -t '$clone'"
   fi
 done
 

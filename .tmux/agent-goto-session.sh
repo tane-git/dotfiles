@@ -11,6 +11,10 @@
 #   if the source session gets renamed, or the nested client is ever pointed
 #   elsewhere after creation.
 #
+#   Nested clients attach to a per-tile clone session (see agent-dashboard.sh
+#   / agent-lib.sh), not the real session directly, so client_session here is
+#   a clone name — its $CLONE_OPTION value is the real session to switch to.
+#
 # Safety: only acts while attached to the dashboard session. If no matching
 # nested client is found, it says so instead of switching anywhere.
 # Every call is pinned with -c to the client that pressed the hotkey
@@ -26,14 +30,17 @@ if [ "$(tmux display-message -p -c "$trigger_tty" '#{session_name}')" != "$DASHB
 fi
 
 pane_tty=$(tmux display-message -p -c "$trigger_tty" '#{pane_tty}')
-target=$(
+clone=$(
   tmux list-clients -F '#{client_tty}	#{client_session}' \
     | awk -F'\t' -v tty="$pane_tty" '$1 == tty { print $2; exit }'
 )
 
-if [ -z "$target" ]; then
+if [ -z "$clone" ]; then
   tmux display-message "agent-goto-session: no agent client found for this pane"
   exit 0
 fi
+
+target=$(tmux show-options -t "$clone" -v "$CLONE_OPTION" 2>/dev/null || true)
+[ -z "$target" ] && target="$clone"
 
 tmux switch-client -c "$trigger_tty" -t "$target"

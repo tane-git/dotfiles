@@ -4,8 +4,9 @@
 # M-b, anything). A nested tmux-attach client left running inside a
 # dashboard tile stays a contender for that window's size (window-size
 # latest), which can steal the real session's rendering back down to the
-# tile's smaller size — killing the dashboard cleanly detaches all its
-# nested clients (see agent-dashboard.sh) without touching anything real.
+# tile's smaller size — killing the dashboard and its clone sessions
+# cleanly detaches all its nested clients (see agent-dashboard.sh) without
+# touching anything real.
 #
 #   tmux 3.6a's hook formats don't expose the client's *previous* session
 #   directly, only its current one — so this tracks each client's last-seen
@@ -27,4 +28,5 @@ echo "$new_session" > "$state_file"
 
 if [ "$old_session" = "$DASHBOARD" ] && [ "$new_session" != "$DASHBOARD" ]; then
   tmux kill-session -t "$DASHBOARD" 2>/dev/null || true
+  agent_dashboard_kill_clones
 fi
