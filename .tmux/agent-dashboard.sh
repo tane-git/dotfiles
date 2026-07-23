@@ -15,6 +15,12 @@
 #   status bar — fixing the double-status-bar row mismatch a direct attach
 #   would otherwise cause.
 #
+#   If the agent pane shares its window with other panes, that window gets
+#   zoomed onto the agent pane so the tile shows just it — but only if the
+#   window wasn't already zoomed (zoom is a window-level flag shared with
+#   the real session, so a pre-existing zoom is left alone and never
+#   touched by dashboard cleanup either; see agent-lib.sh's $ZOOM_OPTION).
+#
 # Safety:
 #   * Only ever creates/kills the dashboard session by its fixed name
 #     ($DASHBOARD), plus its own tagged clone sessions — never a bare/
@@ -38,12 +44,14 @@ trigger_tty="${1:?agent-dashboard.sh: missing trigger tty argument}"
 
 AGENT_CMDS="opencode|claude"
 
-# Unique session:window pairs whose active pane is running an agent command.
+# One row per session:window containing an agent pane, plus that pane's id
+# (used to zoom it below). If a window has more than one agent pane, only
+# the first found is tracked/zoomed — isolating multiple agent panes out of
+# the same window is the open TODO in .tmux.conf, not handled here.
 mapfile -t agent_windows < <(
-  tmux list-panes -a -F '#{session_name}	#{window_index}	#{pane_current_command}' \
+  tmux list-panes -a -F '#{session_name}	#{window_index}	#{pane_current_command}	#{pane_id}' \
     | awk -F'\t' -v dash="$DASHBOARD" -v cmds="^($AGENT_CMDS)\$" \
-        '$1 != dash && $3 ~ cmds { print $1 "\t" $2 }' \
-    | sort -u
+        '$1 != dash && $3 ~ cmds && !seen[$1 SUBSEP $2]++ { print $1 "\t" $2 "\t" $4 }'
 )
 
 if [ "${#agent_windows[@]}" -eq 0 ]; then
@@ -69,7 +77,7 @@ agent_dashboard_kill_clones
 first=1
 tile=0
 for entry in "${agent_windows[@]}"; do
-  IFS=$'\t' read -r src_session src_window <<< "$entry"
+  IFS=$'\t' read -r src_session src_window src_pane <<< "$entry"
   tile=$((tile + 1))
   clone="agentdash-${tile}"
 
@@ -80,6 +88,17 @@ for entry in "${agent_windows[@]}"; do
   tmux select-window -t "${clone}:${src_window}"
   tmux set-option -t "$clone" status off
   tmux set-option -t "$clone" "$CLONE_OPTION" "$src_session"
+
+  # Zoom is a *window*-level flag shared with the real session (see
+  # agent-lib.sh), so only zoom if nothing was already zoomed — never
+  # clobber a zoom the user had set before the dashboard existed, and
+  # remember whether we did it so cleanup knows whether to undo it.
+  if [ "$(tmux display-message -p -t "$clone" '#{window_zoomed_flag}')" = "1" ]; then
+    tmux set-option -t "$clone" "$ZOOM_OPTION" 0
+  else
+    tmux resize-pane -Z -t "$src_pane"
+    tmux set-option -t "$clone" "$ZOOM_OPTION" 1
+  fi
 
   if [ "$first" -eq 1 ]; then
     tmux new-session -d -s "$DASHBOARD" -n "$src_session" "TMUX= tmux attach -t '$clone'"
