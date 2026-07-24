@@ -1,61 +1,118 @@
 #!/usr/bin/env bash
-# toggle-panes.sh — toggle the current session's windows <-> panes.
+# toggle-panes.sh — toggle between "every window in the session" and "every
+# pane in one window".
 #
-#   MERGE  (active window has 1 pane): every window LEFT of the active one
-#          becomes a pane to the left, every window RIGHT becomes a pane to
-#          the right, order preserved, active window stays focused.
-#   UNMERGE (active window has >1 pane): the reverse — panes left of the
-#          active pane break out as windows to the left, panes to the right
-#          break out as windows to the right, active stays put.
+#   MERGE (more than one window exists): every other window's panes join the
+#     current window as panes — windows left of it join left, windows right
+#     join right, order preserved. Each pane is tagged with its origin
+#     window's name, only if it isn't already tagged, so the name survives
+#     even if a pane passes through more than one merge before being undone.
+#
+#   UNMERGE (exactly one window exists): every pane except the currently
+#     active one breaks out into its own window, renamed from its tag if it
+#     has one. The active pane's window is never touched, so it stays
+#     focused automatically. Left/right position and order are decided by
+#     each pane's current on-screen position, not stored state.
+#
+#   This intentionally does not try to rebuild a window that originally had
+#   several panes as one window again — every pane always becomes its own
+#   window. Simpler, and good enough for now; revisit if that's ever missed.
 #
 # Safety:
 #   * No recursion: never triggers the M-a binding, only tmux pane/window ops.
-#   * No unbounded loops: every loop iterates a one-time snapshot, so it is
-#     bounded by the current window/pane count.
-#   * Stable references: source windows by window_id (@N), source panes by
-#     pane_id (%N), the anchor window by window_id — consuming/breaking items
-#     never invalidates a later reference.
+#   * No unbounded loops: bounded by current window/pane count.
+#   * Stable references: windows by window_id (@N), panes by pane_id (%N).
 set -u
 
-npanes=$(tmux display-message -p '#{window_panes}')
+OPT_NAME="@toggle-name"
 
-if [ "$npanes" -le 1 ]; then
-  # ---------- MERGE: windows -> panes ----------
+tag_if_unset() {
+  local pid="$1" name="$2" existing
+  existing=$(tmux display-message -p -t "$pid" "#{$OPT_NAME}")
+  [ -z "$existing" ] && tmux set-option -p -t "$pid" "$OPT_NAME" "$name"
+}
+
+window_count=$(tmux list-windows | wc -l)
+
+if [ "$window_count" -gt 1 ]; then
+  # ---------- MERGE ----------
   active=$(tmux display-message -p '#{window_index}')
+  awin=$(tmux display-message -p '#{window_id}')
   apane=$(tmux display-message -p '#{pane_id}')
 
-  # Left windows, ASCENDING, each joined with -b (immediately left of active)
-  # so low->high index preserves left-to-right order.
-  for wid in $(tmux list-windows -F '#{window_index} #{window_id}' \
-               | awk -v a="$active" '$1 < a' | sort -n | awk '{print $2}'); do
-    tmux join-pane -d -h -b -s "$wid" -t "$apane"
-  done
-  # Right windows, DESCENDING, each joined without -b (immediately right of
-  # active) so high->low index preserves order.
-  for wid in $(tmux list-windows -F '#{window_index} #{window_id}' \
-               | awk -v a="$active" '$1 > a' | sort -rn | awk '{print $2}'); do
-    tmux join-pane -d -h -s "$wid" -t "$apane"
-  done
+  # Container's own existing panes just get tagged, never moved.
+  while IFS= read -r pid; do
+    tag_if_unset "$pid" "$(tmux display-message -p -t "$awin" '#{window_name}')"
+  done < <(tmux list-panes -t "$awin" -F '#{pane_id}')
+
+  # Tag and drain every pane of $1's windows (ids, one per line) into $apane.
+  # $2 is "-b" for left-side windows, "" for right-side — same
+  # order-preserving convention as before (ascending+before / descending+
+  # after keeps left-to-right order intact either way).
+  merge_side() {
+    local wid wname pid
+    while IFS= read -r wid; do
+      [ -z "$wid" ] && continue
+      wname=$(tmux display-message -p -t "$wid" '#{window_name}')
+      while IFS= read -r pid; do
+        tag_if_unset "$pid" "$wname"
+        if [ "$2" = "-b" ]; then
+          tmux join-pane -d -h -b -s "$pid" -t "$apane"
+        else
+          tmux join-pane -d -h -s "$pid" -t "$apane"
+        fi
+      done < <(tmux list-panes -t "$wid" -F '#{pane_id}')
+    done <<< "$1"
+  }
+
+  left_wids=$(tmux list-windows -F '#{window_index} #{window_id}' \
+              | awk -v a="$active" '$1 < a' | sort -n | awk '{print $2}')
+  right_wids=$(tmux list-windows -F '#{window_index} #{window_id}' \
+              | awk -v a="$active" '$1 > a' | sort -rn | awk '{print $2}')
+
+  merge_side "$left_wids" "-b"
+  merge_side "$right_wids" ""
 
   # Each join halves the target's space; normalize to equal-width columns.
   tmux select-layout -t "$apane" even-horizontal
   tmux select-pane -t "$apane"
 
 else
-  # ---------- UNMERGE: panes -> windows ----------
-  awin=$(tmux display-message -p '#{window_id}')          # stable anchor
-  aleft=$(tmux display-message -p '#{pane_left}')         # active pane's x
+  # ---------- UNMERGE ----------
+  awin=$(tmux display-message -p '#{window_id}')
+  apane=$(tmux display-message -p '#{pane_id}')
+  aleft=$(tmux display-message -p '#{pane_left}')
 
-  # Left panes (x < active), ASCENDING, each broken out with -b (immediately
-  # before the anchor window) so low->high x preserves order.
-  for pid in $(tmux list-panes -F '#{pane_left} #{pane_id}' \
-               | awk -v a="$aleft" '$1 < a' | sort -n | awk '{print $2}'); do
-    tmux break-pane -d -b -s "$pid" -t "$awin"
-  done
-  # Right panes (x > active), DESCENDING, each broken out with -a (immediately
-  # after the anchor window) so high->low x preserves order.
-  for pid in $(tmux list-panes -F '#{pane_left} #{pane_id}' \
-               | awk -v a="$aleft" '$1 > a' | sort -rn | awk '{print $2}'); do
-    tmux break-pane -d -a -s "$pid" -t "$awin"
-  done
+  # Break out one pane per line (pane_left	pane_top	pane_id, ordered),
+  # $2 is "-b" (insert before $awin) or "-a" (insert after).
+  break_out() {
+    local pid name newwin
+    while IFS=$'\t' read -r _ _ pid; do
+      [ -z "$pid" ] && continue
+      name=$(tmux show-options -p -t "$pid" -v "$OPT_NAME" 2>/dev/null)
+      tmux break-pane -d "$2" -s "$pid" -t "$awin"
+      newwin=$(tmux display-message -p -t "$pid" '#{window_id}')
+      [ -n "$name" ] && tmux rename-window -t "$newwin" "$name"
+      tmux set-option -p -u -t "$pid" "$OPT_NAME" 2>/dev/null
+    done <<< "$1"
+  }
+
+  # Left of active, ASCENDING + insert-before; right of active (ties with the
+  # active pane's own x-position default to the right) DESCENDING +
+  # insert-after — preserves order, and a pane stacked directly above/below
+  # the active one no longer gets silently skipped like the old version.
+  left=$(tmux list-panes -t "$awin" -F '#{pane_left}	#{pane_top}	#{pane_id}' \
+    | awk -F'\t' -v a="$aleft" -v ap="$apane" '$3 != ap && $1 < a' | sort -t$'\t' -k1,1n -k2,2n)
+  right=$(tmux list-panes -t "$awin" -F '#{pane_left}	#{pane_top}	#{pane_id}' \
+    | awk -F'\t' -v a="$aleft" -v ap="$apane" '$3 != ap && $1 >= a' | sort -t$'\t' -k1,1rn -k2,2rn)
+
+  break_out "$left" "-b"
+  break_out "$right" "-a"
+
+  # $awin keeps whatever it was already named, but the pane left inside it
+  # (the active one) may have been tagged from a different original window —
+  # rename $awin to match so the surviving window reflects what's really in it.
+  aname=$(tmux show-options -p -t "$apane" -v "$OPT_NAME" 2>/dev/null)
+  [ -n "$aname" ] && tmux rename-window -t "$awin" "$aname"
+  tmux set-option -p -u -t "$apane" "$OPT_NAME" 2>/dev/null
 fi
