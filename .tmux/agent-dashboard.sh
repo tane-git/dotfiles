@@ -86,8 +86,22 @@ for entry in "${agent_windows[@]}"; do
   # `man tmux`, new-session -t).
   tmux new-session -d -t "$src_session" -s "$clone"
   tmux select-window -t "${clone}:${src_window}"
-  tmux set-option -t "$clone" status off
   tmux set-option -t "$clone" "$CLONE_OPTION" "$src_session"
+
+  # Status bar shows just the real session's name, as a literal from
+  # $src_session (not the default "#{session_name}" format, which would
+  # evaluate against the clone's own name, e.g. "agentdash-1").
+  #
+  # window-status-format/-current-format can't be used for this: they're
+  # WINDOW options (see `window-status-format` in `man tmux`), and the
+  # clone's window is the real session's shared window (session groups
+  # share windows, not copies) — setting them "on that window" would leak
+  # into the real session's own tab display too. status-format[] is
+  # session-scoped, so it's overridden wholesale instead, replacing the
+  # default template (which stitches status-left + window list +
+  # status-right) with just the literal session name.
+  tmux set-option -t "$clone" status on
+  tmux set-option -t "$clone" status-format[0] "$src_session"
 
   # Zoom is a *window*-level flag shared with the real session (see
   # agent-lib.sh), so only zoom if nothing was already zoomed — never
