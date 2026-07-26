@@ -17,6 +17,12 @@ CLONE_OPTION="@agent-dashboard-clone"
 # set before the dashboard touched it.
 ZOOM_OPTION="@agent-dashboard-zoomed"
 
+# Global (server-wide) option holding the real session name behind whichever
+# dashboard tile currently has focus — see agent-dashboard-focus-hook.sh.
+# Every clone's status-format compares its own real session name against
+# this single shared value to decide whether to highlight itself.
+FOCUS_OPTION="@agent-dashboard-focused-session"
+
 # Kill every dashboard clone session currently on the server. Safe: a clone
 # is just one member of a tmux session group sharing the real session's
 # windows — per `man tmux` (new-session), "any session in a group may be

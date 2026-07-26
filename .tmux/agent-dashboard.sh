@@ -100,8 +100,29 @@ for entry in "${agent_windows[@]}"; do
   # session-scoped, so it's overridden wholesale instead, replacing the
   # default template (which stitches status-left + window list +
   # status-right) with just the literal session name.
+  #
+  # Highlight: purple, matching the real active-tab style, whenever
+  # $FOCUS_OPTION — a single global value written by
+  # agent-dashboard-focus-hook.sh on pane-focus-in — equals this clone's
+  # own real session name. This is a *live* comparison re-evaluated on
+  # every status-bar redraw, so no separate focus-out handling is needed:
+  # as soon as focus moves elsewhere the value changes and this condition
+  # just goes false on its own.
+  #
+  # status-style (not inline #[...] in status-format) is what's toggled,
+  # since that's what paints the *entire* bar's background, including the
+  # empty space beyond the text — inline styling in status-format only
+  # colors the literal characters it wraps.
   tmux set-option -t "$clone" status on
-  tmux set-option -t "$clone" status-format[0] "$src_session"
+  tmux set-option -t "$clone" status-format[0] " $src_session"
+  # Every comma inside both branches must be escaped (#,) — tmux's
+  # #{?cond,true,false} ternary splits on ANY unescaped comma after the
+  # condition, so an unescaped comma inside a branch (e.g. between
+  # bg=...  and fg=...) truncates that branch early instead of being part
+  # of its style string. Verified empirically: leaving inner commas
+  # unescaped silently truncated the true-branch to just "bg=brightmagenta".
+  tmux set-option -t "$clone" status-style \
+    "#{?#{==:#{$FOCUS_OPTION},$src_session},bg=brightmagenta#,fg=colour0#,bold,bg=green#,fg=black}"
 
   # Zoom is a *window*-level flag shared with the real session (see
   # agent-lib.sh), so only zoom if nothing was already zoomed — never
