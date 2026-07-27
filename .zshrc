@@ -144,17 +144,23 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # Require confirmation before killing a tmux server/session, since these
 # commands have no default keybinding/guard and can wipe out every running
-# session, window, and pane with no way to undo it.
+# session, window, and pane with no way to undo it. Checks every argument,
+# not just $1, since tmux chains subcommands with its own `;` separator
+# (e.g. `tmux -f /dev/null start-server \; ... \; kill-server`), which would
+# otherwise put kill-server past position $1 and skip the guard entirely.
 tmux() {
-    case "$1" in
-        kill-server|kill-session)
-            read "confirm?Really run 'tmux $*'? This can destroy other sessions/panes. (yes/N) "
-            if [[ "$confirm" != yes ]]; then
-                echo "aborted"
-                return 1
-            fi
-            ;;
-    esac
+    for arg in "$@"; do
+        case "$arg" in
+            kill-server|kill-session)
+                read "confirm?Really run 'tmux $*'? This can destroy other sessions/panes. (yes/N) "
+                if [[ "$confirm" != yes ]]; then
+                    echo "aborted"
+                    return 1
+                fi
+                break
+                ;;
+        esac
+    done
     command tmux "$@"
 }
 
