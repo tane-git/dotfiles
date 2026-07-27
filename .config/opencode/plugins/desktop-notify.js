@@ -19,7 +19,7 @@
 // dbus-monitor filtered on the interface/member instead, with no --dest
 // restriction, is what actually sees it (confirmed by capturing a real click
 // with an unfiltered dbus-monitor session).
-import { appendFileSync } from "fs"
+import { appendFileSync, readFileSync, unlinkSync } from "fs"
 import { spawn } from "bun"
 
 const DEBUG_LOG = "/tmp/opencode-desktop-notify-debug.log"
@@ -30,6 +30,7 @@ function debug(msg) {
 }
 
 const JUMP_SCRIPT = `${process.env.HOME}/.tmux/notify-jump.sh`
+const SUMMARY_LIMIT = 220
 
 function urgencyByte(urgency) {
   if (urgency === "critical") return 2
@@ -37,7 +38,12 @@ function urgencyByte(urgency) {
   return 1
 }
 
-export const DesktopNotifyPlugin = async ({ $, client }) => {
+function shortenPath(dir) {
+  const home = process.env.HOME
+  return home && dir?.startsWith(home) ? `~${dir.slice(home.length)}` : dir
+}
+
+export const DesktopNotifyPlugin = async ({ $, directory }) => {
   const pane = process.env.TMUX_PANE
   if (!pane) return {}
 
@@ -45,15 +51,76 @@ export const DesktopNotifyPlugin = async ({ $, client }) => {
   const errored = new Set()
   const permissions = new Set()
   const ownedIds = new Set()
+  const projectLabel = shortenPath(directory)
 
-  async function sessionTitle(sessionID) {
+  // The generated client's session.get/session.messages methods are broken
+  // on this opencode version - they always send a literal unsubstituted
+  // "{id}" path segment no matter what key the input object uses, and
+  // PluginInput.serverUrl points at an unrelated shared server rather than
+  // this instance's own data (confirmed by testing both against real
+  // sessions). `opencode export` reads straight from local storage, sidestepping both.
+  async function exportSession(sessionID) {
+    // Long sessions export tens of MB of JSON, and capturing that through
+    // Bun's shell `.text()` silently truncates around ~200KB (confirmed on a
+    // real 2000+ message session - it cut off mid-object and failed to
+    // parse). Redirecting to a file and reading it back avoids that limit.
+    const tmpFile = `/tmp/opencode-desktop-notify-export-${sessionID}-${process.pid}.json`
     try {
-      const result = await client.session.get({ sessionID })
-      return result.data?.title
+      await $`opencode export ${sessionID} > ${tmpFile}`.nothrow().quiet()
+      return JSON.parse(readFileSync(tmpFile, "utf8"))
     } catch (error) {
-      debug(`sessionTitle failed sessionID=${sessionID} error=${error}`)
+      debug(`exportSession failed sessionID=${sessionID} error=${error}`)
+      return undefined
+    } finally {
+      try {
+        unlinkSync(tmpFile)
+      } catch {}
+    }
+  }
+
+  function lastAssistantText(messages) {
+    const assistant = (messages ?? []).filter((m) => m.info?.role === "assistant")
+    assistant.sort((a, b) => (b.info.time?.created ?? 0) - (a.info.time?.created ?? 0))
+    const latest = assistant[0]
+    if (!latest) return undefined
+    const textParts = latest.parts.filter((p) => p.type === "text" && p.text?.trim())
+    const last = textParts[textParts.length - 1]
+    if (!last) return undefined
+    const flat = last.text.replace(/\s+/g, " ").trim()
+    return flat.length > SUMMARY_LIMIT ? `${flat.slice(0, SUMMARY_LIMIT)}…` : flat
+  }
+
+  async function tmuxContext() {
+    try {
+      const format = "#{session_name}\t#{window_name}"
+      const text = await $`tmux display-message -p -t ${pane} ${format}`.nothrow().quiet().text()
+      const [sessionName, windowName] = text.trim().split("\t")
+      if (!sessionName) return undefined
+      return `${sessionName}:${windowName}`
+    } catch (error) {
+      debug(`tmuxContext failed: ${error}`)
       return undefined
     }
+  }
+
+  // GNOME renders `summary` and `body` as two separate lines but with
+  // identical (non-bold) styling here - confirmed by testing - and collapses
+  // embedded newlines within a single field down to one line rather than
+  // wrapping them. So the two real text slots are summary and body, and
+  // `body-markup` (confirmed via GetCapabilities) is the only way to get any
+  // visual emphasis: put "where" (tmux + project) in summary, and a bolded
+  // label plus the "what" (message snippet or title) in body.
+  function whereLine(context, status) {
+    const where = [context, projectLabel].filter(Boolean).join(" · ")
+    return where ? `${where} — ${status}` : status
+  }
+
+  function escapeMarkup(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  }
+
+  function whatBody(label, text) {
+    return `<b>${escapeMarkup(label)}:</b> ${escapeMarkup(text)}`
   }
 
   async function send(urgency, summary, body) {
@@ -151,16 +218,18 @@ export const DesktopNotifyPlugin = async ({ $, client }) => {
         if (!active.has(sessionID)) return
         active.delete(sessionID)
         if (errored.delete(sessionID)) return
-        const title = await sessionTitle(sessionID)
-        await send("normal", "OpenCode: done", title ?? "Session finished")
+        const [exported, context] = await Promise.all([exportSession(sessionID), tmuxContext()])
+        const title = exported?.info?.title
+        const snippet = lastAssistantText(exported?.messages)
+        await send("normal", whereLine(context, "done"), whatBody(title ?? "Done", snippet ?? title ?? "Session finished"))
         return
       }
 
       if (event.type === "session.error") {
         if (!sessionID || !active.has(sessionID)) return
         errored.add(sessionID)
-        const title = await sessionTitle(sessionID)
-        await send("critical", "OpenCode: error", title ?? "Session hit an error")
+        const [exported, context] = await Promise.all([exportSession(sessionID), tmuxContext()])
+        await send("critical", whereLine(context, "error"), whatBody("Error", exported?.info?.title ?? "Session hit an error"))
         return
       }
 
@@ -168,8 +237,12 @@ export const DesktopNotifyPlugin = async ({ $, client }) => {
         const id = event.properties.id
         if (permissions.has(id)) return
         permissions.add(id)
-        const title = await sessionTitle(event.properties.sessionID)
-        await send("critical", "OpenCode: needs permission", title ?? event.properties.title ?? "Permission requested")
+        const [exported, context] = await Promise.all([exportSession(event.properties.sessionID), tmuxContext()])
+        await send(
+          "critical",
+          whereLine(context, "needs permission"),
+          whatBody("Permission", exported?.info?.title ?? event.properties.title ?? "Permission requested"),
+        )
         return
       }
 
