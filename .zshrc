@@ -162,3 +162,4 @@ tmux() {
 if [[ -n "$SSH_CONNECTION" ]] && [[ -z "$TMUX" ]]; then
     tmux attach-session -t main || tmux new-session -s main
 fi
+
