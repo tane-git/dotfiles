@@ -14,8 +14,28 @@
 #   opencode pod against loopback.
 
 OC_URL="${OPENCODE_URL:-http://127.0.0.1:4599}"
-OC_LIMIT="${OPENCODE_LIST_LIMIT:-10}"
+# Was 10 when the console was a tmux menu, which cannot scroll. fzf can, and
+# it filters as you type, so the list may as well be everything — the limit
+# now exists only to bound the response, not the UI.
+OC_LIMIT="${OPENCODE_LIST_LIMIT:-200}"
 OC_TIMEOUT="${OPENCODE_API_TIMEOUT:-15}"
+
+# The picker needs fzf >= 0.57 for --with-nth/--accept-nth templates, which
+# is what lets a row carry a hidden session id and still render as clean
+# columns. Ubuntu focal (the Inferno opencode base image) packages no fzf at
+# all, and distro builds elsewhere are routinely years old — 0.29 locally at
+# the time of writing, which silently lacks all of it. So we pin our own
+# static binary and only fall back to $PATH if it is missing.
+OC_FZF="${OPENCODE_FZF:-}"
+if [ -z "$OC_FZF" ]; then
+  if [ -x "$HOME/.local/bin/fzf" ]; then OC_FZF="$HOME/.local/bin/fzf"
+  else                                   OC_FZF="fzf"
+  fi
+fi
+
+# Sentinel for "this facet is not filtered". Shown as a real row in the
+# facet pickers so clearing a filter is the same gesture as setting one.
+OC_FACET_ALL="(all)"
 
 # Prefix for tmux sessions holding a console view. Keeps them greppable, and
 # leaves room to filter them out of the M-s chooser later the same way

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # oc-open.sh — open (or jump to) a tmux view onto one opencode session.
 #
-#   usage: oc-open.sh <session-id> <slug> [client-tty]
+#   usage: oc-open.sh <session-id> <slug> [client-tty] [switch]
+#
+#   `switch` defaults to 1. Multi-select in the picker calls this once per
+#   chosen session with switch=0 for all but the first, so a bulk open
+#   creates every view but only ever moves you to one of them.
 #
 #   Creates a tmux session named "$OC_PREFIX<slug>" whose single pane runs
 #   `opencode attach --session <id>`. Idempotent: if that view already exists
@@ -27,6 +31,7 @@ source ~/.tmux/oc-lib.sh
 session_id="${1:?oc-open.sh: missing session id argument}"
 slug="${2:?oc-open.sh: missing slug argument}"
 client_tty="${3:-}"
+switch="${4:-1}"
 
 name="${OC_PREFIX}${slug}"
 
@@ -49,6 +54,8 @@ fi
 # use" — and a display-popup runs its command in a pane that isn't a normal
 # window pane, so that guess is exactly the kind tmux's own docs hedge on.
 # Same reasoning (and the same #{client_tty} plumbing) as agent-dashboard.sh.
+[ "$switch" = "1" ] || exit 0
+
 if [ -z "${TMUX:-}" ]; then
   tmux attach-session -t "=$name"
 elif [ -n "$client_tty" ]; then
