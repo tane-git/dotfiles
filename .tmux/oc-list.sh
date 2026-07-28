@@ -38,8 +38,21 @@ for arg in "$@"; do
   esac
 done
 
+# /experimental/session rather than /session, because /session is scoped to
+# the server's *current* project and silently hides everything else. On the
+# Inferno pod that meant 44 sessions out of 3994: opencode runs in
+# /home/opencode (projectID "global") while every MR review lives in a
+# per-repo project such as /home/opencode/flame, each with its own
+# projectID. There is no parameter on /session that lifts that scoping.
+#
+# The tradeoff is the "experimental" path, which upstream may move or
+# rename. It exists on both 1.17.7 (the pod) and 1.17.19 (dev machines), and
+# returns GlobalSession — a superset of Session carrying every field used
+# here, metadata and parentID included. If it ever disappears, the fallback
+# is /session queried once per directory, which is strictly more code.
+#
 # oc_api has already written the reason to stderr; callers capture it there.
-sessions=$(oc_api "/session?limit=${OC_LIMIT}") || exit 1
+sessions=$(oc_api "/experimental/session?limit=${OC_LIMIT}") || exit 1
 
 # Not fatal: without it every session reads as idle, which beats refusing to
 # show the list at all.

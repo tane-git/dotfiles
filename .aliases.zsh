@@ -31,9 +31,19 @@ inferno() {
   # so the outer server still has the keys. Created detached first because a
   # session started with -A attaches immediately and would block the
   # set-option that follows.
+  # OPENCODE_URL is set with tmux set-environment rather than by wrapping the
+  # command in `env`, because the console runs from the *tmux server's*
+  # environment (M-S goes run-shell -> display-popup, and both inherit from
+  # the server, not from this pane). An `env` wrapper only reaches the server
+  # on the connection that happens to create it — reconnect to a server that
+  # is already running and the variable is simply absent, the console falls
+  # back to the laptop default of 4599, and it fails with "connection
+  # refused" on a port nothing is listening to. set-environment -g applies
+  # either way, and is picked up by run-shell and popups alike (verified).
   kubectl --context="$ctx" -n "$ns" exec -it "$pod" -- \
-    env OPENCODE_URL=http://127.0.0.1:4096 sh -c '
+    sh -c '
       tmux new-session -A -d -s main
+      tmux set-environment -g OPENCODE_URL http://127.0.0.1:4096
       tmux set -g @accent colour141
       exec tmux attach -t main
     '

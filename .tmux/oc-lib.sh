@@ -17,7 +17,13 @@ OC_URL="${OPENCODE_URL:-http://127.0.0.1:4599}"
 # Was 10 when the console was a tmux menu, which cannot scroll. fzf can, and
 # it filters as you type, so the list may as well be everything — the limit
 # now exists only to bound the response, not the UI.
-OC_LIMIT="${OPENCODE_LIST_LIMIT:-200}"
+#
+# Deliberately far above any realistic session count, because a limit that
+# quietly clips the list is indistinguishable from the bug this console just
+# had — and 5000 was already not enough: the dev machine holds 6661. Cost at
+# that size is 0.44s end to end for the whole list, so the headroom is close
+# to free.
+OC_LIMIT="${OPENCODE_LIST_LIMIT:-50000}"
 OC_TIMEOUT="${OPENCODE_API_TIMEOUT:-15}"
 
 # The picker needs fzf >= 0.57 for --with-nth/--accept-nth templates, which

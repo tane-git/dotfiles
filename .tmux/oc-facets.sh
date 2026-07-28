@@ -19,7 +19,10 @@ source ~/.tmux/oc-lib.sh
 
 facet="${1:?usage: oc-facets.sh <facet>}"
 
-sessions=$(oc_api "/session?limit=${OC_LIMIT}") || exit 1
+# Same endpoint as oc-list.sh, and for the same reason — see the comment
+# there. The facet values must be derived from exactly the set the list
+# shows, or picking a directory would filter the list down to nothing.
+sessions=$(oc_api "/experimental/session?limit=${OC_LIMIT}") || exit 1
 
 case "$facet" in
   # Sessions currently doing something appear in /session/status; idle ones
