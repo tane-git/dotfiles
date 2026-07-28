@@ -22,6 +22,21 @@ inferno() {
     return 1
   fi
 
+  # Mark this pane as holding a nested tmux, so the outer F12 passthrough
+  # binding knows it is safe to inject F10/F11 here and nowhere else. Cleared
+  # on the way out, however the connection ends.
+  [[ -n "$TMUX" ]] && tmux set-option -p @nested 1
+
+  # The inner tmux starts purple: on connect you are not in passthrough yet,
+  # so the outer server still has the keys. Created detached first because a
+  # session started with -A attaches immediately and would block the
+  # set-option that follows.
   kubectl --context="$ctx" -n "$ns" exec -it "$pod" -- \
-    env OPENCODE_URL=http://127.0.0.1:4096 tmux new-session -A -s main
+    env OPENCODE_URL=http://127.0.0.1:4096 sh -c '
+      tmux new-session -A -d -s main
+      tmux set -g @accent colour141
+      exec tmux attach -t main
+    '
+
+  [[ -n "$TMUX" ]] && tmux set-option -p -u @nested
 }
