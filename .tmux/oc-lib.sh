@@ -47,11 +47,63 @@ OC_PREFIX="oc/"
 # presence marks it as ours, value says which agent session it displays).
 OC_SESSION_OPTION="@oc-session"
 
+# The opencode server can require HTTP basic auth — the Inferno container
+# sets $OPENCODE_SERVER_PASSWORD, and `opencode attach` defaults its username
+# to "opencode" (see `opencode attach --help`), so match that exactly. Sent
+# only when a password is present, so an unsecured local server is not handed
+# a half-empty credential.
+OC_CURL_ARGS=(-sS --max-time "$OC_TIMEOUT")
+if [ -n "${OPENCODE_SERVER_PASSWORD:-}" ]; then
+  OC_CURL_ARGS+=(--user "${OPENCODE_SERVER_USERNAME:-opencode}:${OPENCODE_SERVER_PASSWORD}")
+fi
+
 # GET $1 from the opencode server. Fails loudly — a silent empty list would
 # be indistinguishable from "no sessions running", which is exactly the case
 # the console must never get wrong.
+#
+# Diagnostics go to stderr, not to a variable: every caller invokes this
+# inside a command substitution, which is a subshell, so an assignment here
+# would be discarded before the caller could ever read it. stderr is the only
+# channel that survives that. Being specific matters — a 401, a wrong port
+# and a genuinely dead server all used to render as "cannot reach the
+# server", which reads as a network problem and sends you looking in the
+# wrong place.
 oc_api() {
-  curl -sS --fail --max-time "$OC_TIMEOUT" "${OC_URL}$1"
+  local body code rc err tmp
+  # curl's own stderr is kept out of the response rather than folded in with
+  # 2>&1 — mixing them means the transport error ("Failed to connect") and
+  # the -w status code end up in the same string, and the useful half gets
+  # thrown away while parsing out the other.
+  #
+  # --fail is deliberately absent: it makes curl discard the response and
+  # report only a generic error, which is the opposite of what is wanted
+  # here. The status code is read explicitly instead.
+  tmp=$(mktemp)
+  body=$(curl "${OC_CURL_ARGS[@]}" -w '\n%{http_code}' "${OC_URL}$1" 2>"$tmp")
+  rc=$?
+  err=$(tr '\n' ' ' < "$tmp")
+  rm -f "$tmp"
+
+  if [ "$rc" -ne 0 ]; then
+    echo "${err:-curl exited $rc} (${OC_URL})" >&2
+    return 1
+  fi
+
+  code="${body##*$'\n'}"
+  body="${body%$'\n'*}"
+
+  case "$code" in
+    2*) printf '%s' "$body"; return 0 ;;
+    401|403)
+      if [ -n "${OPENCODE_SERVER_PASSWORD:-}" ]; then
+        echo "HTTP $code from ${OC_URL} — basic auth rejected" >&2
+      else
+        echo "HTTP $code from ${OC_URL} — needs OPENCODE_SERVER_PASSWORD" >&2
+      fi
+      return 1 ;;
+    000) echo "no response from ${OC_URL} (timed out after ${OC_TIMEOUT}s)" >&2; return 1 ;;
+    *)   echo "HTTP $code from ${OC_URL}$1" >&2; return 1 ;;
+  esac
 }
 
 # Full shell command for a view onto session $1, as a single string for

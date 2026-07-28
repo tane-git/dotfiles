@@ -84,7 +84,13 @@ done
 
 # --- facet mode: pick one value, then hand back to list mode --------------
 if [ -n "$facet" ]; then
-  values=$(~/.tmux/oc-facets.sh "$facet") || exit 0
+  facet_err=$(mktemp)
+  if ! values=$(~/.tmux/oc-facets.sh "$facet" 2>"$facet_err"); then
+    tmux display-message "oc-pick: $(tr '\n' ' ' < "$facet_err")"
+    rm -f "$facet_err"
+    exit 0
+  fi
+  rm -f "$facet_err"
 
   # A cancelled picker (Esc, exit 130) must leave the filter alone, which is
   # why the exit status is tested rather than the emptiness of $chosen —
@@ -117,8 +123,10 @@ list_args=()
 [ -n "$f_state" ] && list_args+=( "--state=$f_state" )
 [ -n "$f_mr" ]    && list_args+=( "--mr=$f_mr" )
 
-if ! rows=$(~/.tmux/oc-list.sh ${list_args[@]+"${list_args[@]}"}); then
-  tmux display-message "oc-pick: cannot reach opencode server at $OC_URL"
+err_file=$(mktemp)
+trap 'rm -f "$err_file"' EXIT
+if ! rows=$(~/.tmux/oc-list.sh ${list_args[@]+"${list_args[@]}"} 2>"$err_file"); then
+  tmux display-message "oc-pick: $(tr '\n' ' ' < "$err_file")"
   exit 0
 fi
 
@@ -142,9 +150,9 @@ header="dir:${f_dir:-all}   state:${f_state:-all}   mr:${f_mr:-all}
 
 selection=$(printf '%s\n' "$rows" | "$OC_FZF" \
   --delimiter="$TAB" \
-  --with-nth="{2}$TAB{3}$TAB{4}$TAB{5}" \
+  --with-nth="{2}$TAB{3}$TAB{4}" \
   --accept-nth='{1}' \
-  --nth=1,2 \
+  --nth=1 \
   --tabstop=1 \
   --multi \
   --reverse \
@@ -158,12 +166,12 @@ selection=$(printf '%s\n' "$rows" | "$OC_FZF" \
   --bind "ctrl-r:become($self_cmd --facet=mr --query={q})" \
 ) || exit 0
 
-# --accept-nth hands back field 1, "id|slug", one line per selected row.
+# --accept-nth hands back field 1, the session id, one line per selected row.
 # First one wins the client; the rest are created in the background so a
 # bulk open doesn't fight over where you end up.
 switch=1
-while IFS= read -r line; do
-  [ -z "$line" ] && continue
-  ~/.tmux/oc-open.sh "${line%%|*}" "${line#*|}" "$client_tty" "$switch"
+while IFS= read -r id; do
+  [ -z "$id" ] && continue
+  ~/.tmux/oc-open.sh "$id" "$client_tty" "$switch"
   switch=0
 done <<< "$selection"

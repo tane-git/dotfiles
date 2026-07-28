@@ -5,18 +5,17 @@
 #
 #   Row layout (tabs between fields):
 #
-#     1  id|slug      packed key, never displayed
-#     2  glyph+slug   activity glyph and session name
-#     3  title        what the session is about
-#     4  dir          basename of the session's directory
-#     5  age          time since last activity
+#     1  id           opencode session id, never displayed
+#     2  glyph+title  activity glyph and what the session is about
+#     3  dir          basename of the session's directory
+#     4  age          time since last activity
 #
-#   Field 1 is packed rather than split across two fields because fzf hands
-#   back whatever --accept-nth selects as text; one field means one thing to
-#   parse. "|" is safe as the separator: ids match ^ses[A-Za-z0-9_]+ and
-#   slugs are lowercase-with-hyphens, so neither can contain it.
+#   The server's `slug` ("witty-cactus") is deliberately not shown or used.
+#   It is a generated label that means nothing to a reader; the title is what
+#   identifies a session at a glance, and oc-open.sh names the tmux view
+#   after it too.
 #
-#   Fields 2-5 are pre-padded to fixed widths here rather than left to fzf,
+#   Fields 2-4 are pre-padded to fixed widths here rather than left to fzf,
 #   because the tabs between them exist for --nth field addressing, not for
 #   layout — oc-pick.sh renders them at --tabstop=1, so the padding is what
 #   actually lines the columns up.
@@ -39,6 +38,7 @@ for arg in "$@"; do
   esac
 done
 
+# oc_api has already written the reason to stderr; callers capture it there.
 sessions=$(oc_api "/session?limit=${OC_LIMIT}") || exit 1
 
 # Not fatal: without it every session reads as idle, which beats refusing to
@@ -81,12 +81,11 @@ jq -r --argjson status "$status" \
 
   # Widths are sized for the narrowest realistic client: an 80-column ssh
   # into the Inferno pod, inside a popup that leaves ~72 usable columns,
-  # minus the 2-column pointer/marker gutter fzf draws. 1+1+14 +1+ 34 +1+ 12
-  # +1+ 3 = 68. Overshooting truncates the row rather than wrapping it.
-  | [ "\($s.id)|\($s.slug)",
-      "\($glyph) \($s.slug | fit(14))",
-      ($s.title | fit(34)),
-      ($dir     | fit(12)),
+  # minus the 2-column pointer/marker gutter fzf draws. 1+1+48 +1+ 12 +1+ 3
+  # = 67. Overshooting truncates the row rather than wrapping it.
+  | [ $s.id,
+      "\($glyph) \($s.title | fit(48))",
+      ($dir | fit(12)),
       age($s.time.updated)
     ]
   | @tsv
