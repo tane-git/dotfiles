@@ -19,10 +19,14 @@
 // dbus-monitor filtered on the interface/member instead, with no --dest
 // restriction, is what actually sees it (confirmed by capturing a real click
 // with an unfiltered dbus-monitor session).
-import { appendFileSync, readFileSync, unlinkSync } from "fs"
+import { appendFileSync, readFileSync, unlinkSync, existsSync } from "fs"
 import { spawn } from "bun"
 
 const DEBUG_LOG = "/tmp/opencode-desktop-notify-debug.log"
+// Presence of this marker file disables all notifications; toggled by
+// ~/.tmux/toggle-notify.sh (bound to M-c n). Checked per-send so toggling
+// takes effect immediately with no opencode restart.
+const DISABLED_FLAG = `${process.env.HOME}/.config/opencode/desktop-notify.disabled`
 function debug(msg) {
   try {
     appendFileSync(DEBUG_LOG, `${new Date().toISOString()} ${msg}\n`)
@@ -50,6 +54,7 @@ export const DesktopNotifyPlugin = async ({ $, directory }) => {
   const active = new Set()
   const errored = new Set()
   const permissions = new Set()
+  const questions = new Set()
   const ownedIds = new Set()
   const projectLabel = shortenPath(directory)
 
@@ -124,6 +129,10 @@ export const DesktopNotifyPlugin = async ({ $, directory }) => {
   }
 
   async function send(urgency, summary, body) {
+    if (existsSync(DISABLED_FLAG)) {
+      debug(`suppressed (disabled) urgency=${urgency} summary=${summary}`)
+      return
+    }
     const hints = `{'urgency': <byte ${urgencyByte(urgency)}>}`
     try {
       const result = await $`gdbus call -e -d org.freedesktop.Notifications -o /org/freedesktop/Notifications -m org.freedesktop.Notifications.Notify -- ${"opencode"} ${0} ${""} ${summary} ${body} ${"['default', '']"} ${hints} ${-1}`
@@ -233,21 +242,43 @@ export const DesktopNotifyPlugin = async ({ $, directory }) => {
         return
       }
 
-      if (event.type === "permission.updated") {
+      // The actual events are permission.asked/replied — permission.updated
+      // never fires on this version (confirmed by tapping the event stream),
+      // so this handler previously never ran.
+      if (event.type === "permission.asked") {
         const id = event.properties.id
         if (permissions.has(id)) return
         permissions.add(id)
-        const [exported, context] = await Promise.all([exportSession(event.properties.sessionID), tmuxContext()])
-        await send(
-          "critical",
-          whereLine(context, "needs permission"),
-          whatBody("Permission", exported?.info?.title ?? event.properties.title ?? "Permission requested"),
-        )
+        const context = await tmuxContext()
+        const what = event.properties.metadata?.command ?? event.properties.permission ?? "Permission requested"
+        await send("critical", whereLine(context, "needs permission"), whatBody("Permission", what))
         return
       }
 
       if (event.type === "permission.replied") {
-        permissions.delete(event.properties.permissionID)
+        permissions.delete(event.properties.id ?? event.properties.permissionID)
+        return
+      }
+
+      // The `question` tool emits its own question.asked/replied/rejected
+      // events, separate from permission.* — neither plugin handled them, so
+      // asking a question never notified. Dedup on the request id the same
+      // way permissions do, since question.asked can repeat while pending.
+      if (event.type === "question.asked") {
+        const id = event.properties.id
+        if (questions.has(id)) return
+        questions.add(id)
+        const first = event.properties.questions?.[0]
+        const label = first?.header ?? "Question"
+        const raw = first?.question ?? "Waiting for your answer"
+        const text = raw.length > SUMMARY_LIMIT ? `${raw.slice(0, SUMMARY_LIMIT)}…` : raw
+        const context = await tmuxContext()
+        await send("critical", whereLine(context, "needs input"), whatBody(label, text))
+        return
+      }
+
+      if (event.type === "question.replied" || event.type === "question.rejected") {
+        questions.delete(event.properties.id ?? event.properties.requestID)
       }
     },
   }
