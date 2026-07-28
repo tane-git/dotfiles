@@ -101,7 +101,7 @@ for entry in "${agent_windows[@]}"; do
   # default template (which stitches status-left + window list +
   # status-right) with just the literal session name.
   #
-  # Highlight: purple, matching the real active-tab style, whenever
+  # Highlight: green, matching the real active-tab style, whenever
   # $FOCUS_OPTION — a single global value written by
   # agent-dashboard-focus-hook.sh on pane-focus-in — equals this clone's
   # own real session name. This is a *live* comparison re-evaluated on
@@ -122,7 +122,7 @@ for entry in "${agent_windows[@]}"; do
   # of its style string. Verified empirically: leaving inner commas
   # unescaped silently truncated the true-branch to just "bg=brightmagenta".
   tmux set-option -t "$clone" status-style \
-    "#{?#{==:#{$FOCUS_OPTION},$src_session},bg=brightmagenta#,fg=colour0#,bold,bg=green#,fg=black}"
+    "#{?#{==:#{$FOCUS_OPTION},$src_session},bg=green#,fg=colour0#,bold,bg=default#,fg=default}"
 
   # Zoom is a *window*-level flag shared with the real session (see
   # agent-lib.sh), so only zoom if nothing was already zoomed — never
