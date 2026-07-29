@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# oc-pick.sh — the opencode session console. Bound to M-S, run inside a
-# tmux display-popup.
+# oc-pick.sh — the session picker half of the opencode console.
 #
 #   usage: oc-pick.sh [--client=TTY] [--query=Q]
 #                     [--facet=NAME] [--dir=X] [--state=X] [--mr=X]
+#
+#   Runs as the left pane of the OC SEARCH session built by oc-console.sh,
+#   looping so that Enter can hand off to oc-open.sh without the pane dying.
+#   The right pane is a real opencode client which this steers via
+#   oc-drive.sh on every selection change.
 #
 #   Two layers, deliberately kept apart:
 #
@@ -29,7 +33,7 @@
 #   Carried in argv across re-execs rather than in a temp file. ^p replaces
 #   this process with itself in --facet mode (fzf's `become`), which picks a
 #   value and then re-execs back into list mode with the new filter appended.
-#   No state outlives the popup, and nothing needs cleaning up if it dies.
+#   No state outlives the picker, and nothing needs cleaning up if it dies.
 #
 # Safety:
 #   Read-only against the opencode server. The only side effect is
@@ -38,8 +42,8 @@ set -u
 source ~/.tmux/oc-lib.sh
 
 # Fail with something actionable rather than "command not found" buried in a
-# popup that closes the instant the script exits. The version floor is real,
-# not defensive: on an older fzf the --accept-nth template is rejected
+# pane that may vanish the instant the script exits. The version floor is
+# real, not defensive: on an older fzf the --accept-nth template is rejected
 # outright, and the failure mode for --with-nth is worse — it is accepted and
 # silently makes --nth match nothing at all.
 if ! command -v "$OC_FZF" >/dev/null 2>&1; then
@@ -53,7 +57,7 @@ if [ "$(printf '%s\n0.57.0\n' "$fzf_ver" | sort -V | head -1)" != "0.57.0" ]; th
 fi
 
 self="$HOME/.tmux/oc-pick.sh"
-client_tty="" facet="" query="" console=""
+client_tty="" facet="" query=""
 f_dir="" f_state="" f_mr=""
 
 for arg in "$@"; do
@@ -64,7 +68,6 @@ for arg in "$@"; do
     --dir=*)    f_dir="${arg#--dir=}" ;;
     --state=*)  f_state="${arg#--state=}" ;;
     --mr=*)     f_mr="${arg#--mr=}" ;;
-    --console)  console=1 ;;
     *) echo "oc-pick: unknown argument '$arg'" >&2; exit 1 ;;
   esac
 done
@@ -74,7 +77,6 @@ done
 # (as a %q-quoted string, since fzf hands those to sh -c).
 self_args=()
 [ -n "$client_tty" ] && self_args+=( "--client=$client_tty" )
-[ -n "$console" ]    && self_args+=( "--console" )
 [ -n "$f_dir" ]      && self_args+=( "--dir=$f_dir" )
 [ -n "$f_state" ]    && self_args+=( "--state=$f_state" )
 [ -n "$f_mr" ]       && self_args+=( "--mr=$f_mr" )
@@ -120,7 +122,6 @@ if [ -n "$facet" ]; then
   fi
 
   args=( "--client=$client_tty" "--query=$query" )
-  [ -n "$console" ] && args+=( "--console" )
   [ -n "$f_dir" ]   && args+=( "--dir=$f_dir" )
   [ -n "$f_state" ] && args+=( "--state=$f_state" )
   [ -n "$f_mr" ]    && args+=( "--mr=$f_mr" )
@@ -172,7 +173,8 @@ TAB=$'\t'
 # filter change. Overwriting the same file each run costs nothing and leaves
 # exactly one behind.
 help_file="${TMPDIR:-/tmp}/oc-pick-help-$(id -u).txt"
-cat > "$help_file" <<'HELP'
+{
+  cat <<'HELP'
 
   MOVE      up / down        move
             enter            open
@@ -183,8 +185,13 @@ cat > "$help_file" <<'HELP'
             ctrl-s           state
             ctrl-r           MR status
 
-  VIEW      ctrl-o           preview the selected session
-            ?                this help
+  VIEW      ?                this help
+            alt-l / alt-h    move to the session pane and back
+
+  The right pane is a live opencode client, not a
+  picture of one — it follows the selection, and you
+  can move into it and type.
+
 
   Typing searches session titles only. Directory and
   state are filter keys, so a word like "flame" can
@@ -194,12 +201,16 @@ cat > "$help_file" <<'HELP'
   you to the first.
 
 HELP
+} > "$help_file"
 
-# The active filters become the border label, and the colour changes with
-# them. Unfiltered is calm green; the moment anything is narrowing the list
-# the label goes reversed yellow, so "why am I only seeing 30 sessions" is
-# answerable at a glance instead of by reading a line of text that looks the
-# same either way.
+# Active filters are drawn as a reversed yellow chip in the header. They used
+# to be a border label, but the console puts fzf in a real tmux pane which
+# already draws its own border — a second frame inside it was two wasted
+# columns and two competing green outlines.
+#
+# There is deliberately nothing shown when no filter is set: a permanent
+# "opencode sessions" title tells you something you already know, and the
+# point of the chip is that its presence *is* the signal.
 active=""
 for chip in "dir:$f_dir" "state:$f_state" "mr:$f_mr"; do
   [ -n "${chip#*:}" ] || continue
@@ -207,50 +218,47 @@ for chip in "dir:$f_dir" "state:$f_state" "mr:$f_mr"; do
   active="$active$chip"
 done
 
-if [ -n "$active" ]; then
-  label=" ● $active "
-  label_color="label:bright-yellow:bold:reverse"
-else
-  label=" opencode sessions "
-  label_color="label:green:bold"
-fi
+chip_style=$'\033[1;7;93m'
+dim=$'\033[2m'
+off=$'\033[0m'
 
-# The preview earns its space only when there is space. A 50% split of an
-# ssh'd 80-column pod leaves ~36 columns for a row that wants 68, so titles
-# would be shredded to make room for a pane nobody asked for. Wide terminals
-# get it open by default because that is where it is genuinely useful;
-# narrow ones get it on ctrl-o.
-term_cols=$(tput cols 2>/dev/null || echo 80)
-if [ "$term_cols" -ge 120 ]; then
-  preview_window='right,50%,border-left,wrap'
-else
-  preview_window='right,50%,border-left,wrap,hidden'
-fi
+# Green is reserved for one thing only: the row you are on. Everything
+# structural — prompt, separator rule, both scrollbars, the preview divider,
+# the match count — is medium grey, so the eye has exactly one place to land.
+# Chrome that is the same colour as the selection competes with it for
+# attention and makes the list harder to scan, not easier.
+#
+# Matches are yellow rather than grey: greying them would hide the thing you
+# just typed. Yellow also ties them to the filter chip and the multi-select
+# marker, which are the other two "pay attention here" signals.
+# Numeric, not "colour244" — that is tmux's spelling and fzf rejects it
+# outright with "invalid color specification".
+GREY=244
+fzf_colors="border:${GREY},label:${GREY},prompt:${GREY},separator:${GREY}"
+fzf_colors="${fzf_colors},scrollbar:${GREY},preview-border:${GREY},preview-scrollbar:${GREY}"
+fzf_colors="${fzf_colors},info:${GREY},header:${GREY}"
+fzf_colors="${fzf_colors},pointer:green:bold,marker:bright-yellow:bold"
+fzf_colors="${fzf_colors},hl:bright-yellow,hl+:bright-yellow:bold"
 
-# In console mode the pane to the right *is* the session, live and
-# interactive, so fzf's own preview has nothing left to do — it would be a
-# worse copy of what is already on screen. The preview window stays wired up
-# for the help text alone, and ctrl-o is dropped rather than left bound to
-# something redundant.
+header_hint="${dim}?  help${off}"
+[ -n "$active" ] && header_hint="${chip_style} ● ${active} ${off}  ${header_hint}"
+
+# No fzf border: the console runs this in a real tmux pane which draws its
+# own, and nesting a second one wastes two columns on a duplicate outline.
+#
+# No fzf preview of the session either — the pane to the right *is* the
+# session, live and interactive, so anything drawn here would be a worse copy
+# of what is already on screen. The preview window is kept for the help text
+# alone.
 #
 # start fires once when the list first paints and focus on every subsequent
 # move, which together mean the right pane always matches the highlighted
 # row — including the very first one, before you have touched anything.
-mode_binds=()
-if [ -n "$console" ]; then
-  mode_binds+=( --bind "start:execute-silent(~/.tmux/oc-drive.sh {1})" )
-  mode_binds+=( --bind "focus:execute-silent(~/.tmux/oc-drive.sh {1})" )
-  mode_binds+=( --preview "cat \"$help_file\"" )
-  mode_binds+=( --preview-window 'down,45%,border-top,wrap,hidden' )
-  header_hint='?  help'
-else
-  mode_binds+=( --preview "~/.tmux/oc-preview.sh {1}" )
-  mode_binds+=( --preview-window "$preview_window" )
-  mode_binds+=( --bind "ctrl-o:change-preview(~/.tmux/oc-preview.sh {1})+change-preview-window(right,50%,border-left,wrap|hidden)" )
-  header_hint='?  help      ctrl-o  preview'
-fi
-
 selection=$(printf '%s\n' "$rows" | "$OC_FZF" \
+  --bind "start:execute-silent(~/.tmux/oc-drive.sh {1})" \
+  --bind "focus:execute-silent(~/.tmux/oc-drive.sh {1})" \
+  --preview "cat \"$help_file\"" \
+  --preview-window 'down,45%,border-top,wrap,hidden' \
   --delimiter="$TAB" \
   --with-nth="{2}$TAB{3}$TAB{4}" \
   --accept-nth='{1}' \
@@ -259,15 +267,11 @@ selection=$(printf '%s\n' "$rows" | "$OC_FZF" \
   --multi \
   --reverse \
   --info=inline \
-  --border=rounded \
-  --border-label="$label" \
-  --border-label-pos=3 \
-  --color="border:green,${label_color},prompt:green:bold,pointer:green:bold,marker:bright-yellow:bold,header:dim,info:dim,hl:bright-green,hl+:bright-green:bold" \
+  --color="$fzf_colors" \
   --query="$query" \
   --prompt='search > ' \
   --header="$header_hint" \
   --header-first \
-  "${mode_binds[@]}" \
   --bind "?:change-preview(cat \"$help_file\")+change-preview-window(down,45%,border-top,wrap|hidden)" \
   --bind "ctrl-p:become($self_cmd --facet=dir --query={q})" \
   --bind "ctrl-s:become($self_cmd --facet=state --query={q})" \

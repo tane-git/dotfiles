@@ -56,7 +56,7 @@ fi
 # in a normal pane tmux resolves the current client correctly, and unlike the
 # old popup the console has no reason to second-guess it.
 tmux new-session -d -s "$OC_CONSOLE_SESSION" \
-  "while :; do ~/.tmux/oc-pick.sh --console; done"
+  "while :; do ~/.tmux/oc-pick.sh; done"
 
 # Right: the warm client. No --session, so it lands on whatever was last
 # active; oc-pick.sh steers it to the highlighted row as soon as fzf paints.

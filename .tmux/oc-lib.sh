@@ -48,7 +48,7 @@ OC_FACET_ALL="(all)"
 # The console is a persistent tmux session: fzf on the left, a real opencode
 # client on the right that follows whatever row is selected. M-S switches to
 # it, creating it only if it is not already there.
-OC_CONSOLE_SESSION="${OPENCODE_CONSOLE_SESSION:-oc-console}"
+OC_CONSOLE_SESSION="${OPENCODE_CONSOLE_SESSION:-OC SEARCH}"
 
 # The right-hand client talks to its OWN opencode server, not the one your
 # real views use. This is not an optimisation, it is the whole reason the
@@ -62,6 +62,11 @@ OC_PREVIEW_URL="http://127.0.0.1:${OC_PREVIEW_PORT}"
 
 # Start the private server unless it is already answering. Idempotent, so
 # every console open can call it blindly.
+#
+# TODO: nothing ever stops this. Killing the OC SEARCH session leaves the
+# server running with no client attached, and the only way to stop it is to
+# find the process by port and kill it by hand. Wants either a teardown hook
+# on the console session dying, or an idle timeout.
 #
 # It inherits $OPENCODE_SERVER_PASSWORD when set, so that `opencode attach`
 # — which defaults its credentials from that same variable — lines up with
