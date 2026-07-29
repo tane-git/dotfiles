@@ -43,6 +43,46 @@ fi
 # facet pickers so clearing a filter is the same gesture as setting one.
 OC_FACET_ALL="(all)"
 
+# --- console (two-pane picker + live session view) -------------------------
+#
+# The console is a persistent tmux session: fzf on the left, a real opencode
+# client on the right that follows whatever row is selected. M-S switches to
+# it, creating it only if it is not already there.
+OC_CONSOLE_SESSION="${OPENCODE_CONSOLE_SESSION:-oc-console}"
+
+# The right-hand client talks to its OWN opencode server, not the one your
+# real views use. This is not an optimisation, it is the whole reason the
+# design works: POST /tui/select-session broadcasts to every client attached
+# to a server — verified, two clients both jumped — so driving the console
+# from the main server would drag every open oc/ view along with the cursor.
+# Servers are isolated from each other (also verified), so a second instance
+# on the same storage gives us exactly one client to steer.
+OC_PREVIEW_PORT="${OPENCODE_PREVIEW_PORT:-4699}"
+OC_PREVIEW_URL="http://127.0.0.1:${OC_PREVIEW_PORT}"
+
+# Start the private server unless it is already answering. Idempotent, so
+# every console open can call it blindly.
+#
+# It inherits $OPENCODE_SERVER_PASSWORD when set, so that `opencode attach`
+# — which defaults its credentials from that same variable — lines up with
+# what the server expects instead of being handed a password nobody asked
+# for.
+oc_ensure_preview_server() {
+  curl -sS --fail --max-time 2 -o /dev/null "${OC_PREVIEW_URL}/session?limit=1" 2>/dev/null && return 0
+
+  nohup opencode serve --port "$OC_PREVIEW_PORT" --hostname 127.0.0.1 \
+    >"${TMPDIR:-/tmp}/oc-preview-server-$(id -u).log" 2>&1 &
+  disown 2>/dev/null || true
+
+  # Cold start is around a second; poll rather than sleeping a fixed amount.
+  local i
+  for i in $(seq 1 60); do
+    curl -sS --fail --max-time 1 -o /dev/null "${OC_PREVIEW_URL}/session?limit=1" 2>/dev/null && return 0
+    command sleep 0.25 2>/dev/null || true
+  done
+  return 1
+}
+
 # Prefix for tmux sessions holding a console view. Keeps them greppable, and
 # leaves room to filter them out of the M-s chooser later the same way
 # dashboard clones already are (see agent-lib.sh).
