@@ -50,3 +50,11 @@ inferno() {
 
   [[ -n "$TMUX" ]] && tmux set-option -p -u @nested
 }
+
+# Open tmux with the demo config, from the demo directory.
+tmux-demo() {
+  command tmux -L demo kill-server 2>/dev/null
+  : > ~/tmux-demo/.tmux.conf.demo
+  cd ~/tmux-demo
+  command tmux -L demo -f ~/tmux-demo/.tmux.conf.demo set-option -g default-shell "$(command -v zsh)" \; new-session -s demo
+}

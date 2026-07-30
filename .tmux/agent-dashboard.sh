@@ -73,7 +73,14 @@ agent_dashboard_kill_clones
 
 # TMUX= clears the var each new pane otherwise inherits (pointing at this
 # dashboard session), which makes a nested `tmux attach` to a *different*
-# session exit immediately instead of actually attaching.
+# session exit immediately instead of actually attaching. But TMUX also
+# encodes WHICH socket this server is on — clearing it entirely sends the
+# nested attach to the DEFAULT socket, so it fails whenever we're running on
+# a non-default socket (e.g. the `-L demo` demo server). Capture the current
+# socket path and pass it explicitly with `-S` so the attach targets THIS
+# server, whatever socket it lives on, while still dropping the session part
+# that would otherwise block the nested attach.
+socket=$(tmux display-message -p '#{socket_path}')
 first=1
 tile=0
 for entry in "${agent_windows[@]}"; do
@@ -136,10 +143,10 @@ for entry in "${agent_windows[@]}"; do
   fi
 
   if [ "$first" -eq 1 ]; then
-    tmux new-session -d -s "$DASHBOARD" -n "$src_session" "TMUX= tmux attach -t '$clone'"
+    tmux new-session -d -s "$DASHBOARD" -n "$src_session" "TMUX= tmux -S '$socket' attach -t '$clone'"
     first=0
   else
-    tmux new-window -t "$DASHBOARD" -n "$src_session" "TMUX= tmux attach -t '$clone'"
+    tmux new-window -t "$DASHBOARD" -n "$src_session" "TMUX= tmux -S '$socket' attach -t '$clone'"
   fi
 done
 
