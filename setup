@@ -75,6 +75,7 @@ link_file() {
     echo "Linked $1 -> ~/$2"
 }
 
+link_file ".zshrc" ".zshrc"
 link_file ".tmux.conf" ".tmux.conf"
 link_file ".tmux" ".tmux"
 link_file ".config/nvim" ".config/nvim"
