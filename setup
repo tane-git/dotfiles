@@ -52,7 +52,14 @@ echo "🔗 Setting up dotfiles..."
 DOTFILES_DIR="$HOME/dotfiles"
 
 cd "$DOTFILES_DIR"
-git submodule update --init --recursive
+if ! git submodule update --init --recursive; then
+    echo "⚠️  Submodule update failed (likely a stale pinned commit) — falling back to each submodule's default branch..."
+    git submodule foreach '
+        git fetch origin
+        default_branch=$(git remote show origin | sed -n "/HEAD branch/s/.*: //p")
+        git checkout "$default_branch"
+    '
+fi
 
 backup_if_exists() {
     if [ -f "$1" ] || [ -L "$1" ]; then
