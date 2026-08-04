@@ -1,5 +1,24 @@
 alias v="nvim"
 
+# SSH into t.wilson@DT-APC-TWILS-96 (see ~/.ssh/config's "desk" Host entry)
+# and attach/create the "main" tmux session there. Mirrors `inferno` below:
+# tag this pane @nested first so the F12 passthrough binding in .tmux.conf
+# knows it's safe to route keys into the remote session, start the remote
+# session detached so its accent can be set to purple (not listening yet —
+# same convention F12 itself uses) before attaching, then clear the tag on
+# the way out however the connection ends.
+desk() {
+  [[ -n "$TMUX" ]] && tmux set-option -p @nested 1
+
+  ssh -t desk '
+    tmux new-session -A -d -s main
+    tmux set -g @accent colour141
+    exec tmux attach -t main
+  '
+
+  [[ -n "$TMUX" ]] && tmux set-option -p -u @nested
+}
+
 # Attach to the tmux session console inside the Inferno opencode pod.
 #
 # A function rather than an alias because the pod name changes on every
